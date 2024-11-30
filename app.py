@@ -1,71 +1,109 @@
 import streamlit as st
 import requests
-import json
-import os
 
-# Загружаем переменные окружения из .env файла
-# load_dotenv()
+# URL вашего API
+API_URL_REGISTER = "http://localhost:8000/api/v1/user/register"
+API_URL_TOKEN = "http://localhost:8000/api/v1/user/token"
+API_URL_LOGIN = "http://localhost:8000/api/v1/user/login"  # Новый URL для проверки авторизации
 
-# URL вашего API (измените на адрес вашего backend)
-# API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/user")
-API_URL = "http://127.0.0.1:8000/user"
+# Функция для регистрации пользователя
+def register_user(email: str, password: str, name: str, tag: str):
+    user_data = {
+        "email": email,
+        "password": password,
+        "name": name,
+        "tag": tag
+    }
+    response = requests.post(API_URL_REGISTER, json=user_data)
+    return response
 
-# Страница для авторизации
-def login():
-    st.title('Авторизация')
+# Функция для получения токена
+def get_token(username: str, password: str):
+    response = requests.post(API_URL_TOKEN, data={"username": username, "password": password})
+    if response.status_code == 200:
+        return response.json()["access_token"]
+    else:
+        st.error("Неверные данные для авторизации!")
+        return None
 
-    # Ввод данных пользователя
-    email = st.text_input('Email')
-    password = st.text_input('Пароль', type='password')
+# Функция для проверки авторизации через ручку /login
+def check_authorization(token: str):
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.get(API_URL_LOGIN, headers=headers)
+    return response.status_code == 200
 
-    if st.button('Войти'):
-        # Формируем данные для запроса
-        data = {
-            'username': email,
-            'password': password
-        }
+# Страница регистрации
+def registration_page():
+    st.title("Регистрация")
 
-        # Отправка POST запроса на /token для получения токена
-        response = requests.post(f"{API_URL}/token", data=data)
+    email = st.text_input("Email")
+    password = st.text_input("Пароль", type="password")
+    name = st.text_input("Имя")
+    tag = st.text_input("Тег")
 
-        if response.status_code == 200:
-            # Сохраняем токен в сессию
-            token = response.json()['access_token']
-            st.session_state.token = token
-            st.success("Вы успешно авторизованы!")
-            st.experimental_rerun()
+    if st.button("Зарегистрироваться"):
+        if email and password and name and tag:
+            response = register_user(email, password, name, tag)
+            if response.status_code == 201:
+                st.success("Пользователь успешно зарегистрирован! Перейдите на страницу входа.")
+                st.session_state.registration_success = True
+            else:
+                st.error(f"Ошибка: {response.json().get('detail', 'Неизвестная ошибка')}")
         else:
-            st.error("Неправильный email или пароль!")
+            st.error("Пожалуйста, заполните все поля.")
 
-# Главная страница после авторизации
-def dashboard():
-    st.title(f"Добро пожаловать, {st.session_state.user_data['email']}!")
+# Страница входа для получения токена
+def login_page():
+    st.title("Вход")
 
-    if st.button('Получить данные пользователя'):
-        # Отправка GET запроса для получения данных о пользователе
-        headers = {"Authorization": f"Bearer {st.session_state.token}"}
-        response = requests.get(f"{API_URL}/login", headers=headers)
+    username = st.text_input("Email")
+    password = st.text_input("Пароль", type="password")
 
-        if response.status_code == 200:
-            user_data = response.json()
-            st.write("Данные пользователя:", user_data)
+    if st.button("Войти"):
+        if username and password:
+            token = get_token(username, password)
+            if token:
+                st.success(f"Авторизация прошла успешно! Ваш токен: {token}")
+                # Сохраняем токен в сессии для использования в других запросах
+                st.session_state.token = token
+            else:
+                st.error("Ошибка авторизации!")
         else:
-            st.error("Ошибка при получении данных!")
+            st.error("Пожалуйста, заполните все поля.")
 
-    if st.button('Выйти'):
-        st.session_state.clear()  # Очищаем сессию
-        st.experimental_rerun()
+# Главная страница
+def home_page():
+    if "token" in st.session_state and st.session_state.token:
+        token = st.session_state.token
+        if check_authorization(token):
+            st.title("Главная страница")
+            st.write("Вы в аккаунте!")  # Показываем, что пользователь авторизован
+        else:
+            st.title("Главная страница")
+            st.write("Невалидный токен. Пожалуйста, войдите снова.")
+    else:
+        st.title("Главная страница")
+        st.write("Войдите в аккаунт")  # Если токен отсутствует, показываем сообщение для авторизации
 
-# Основная логика
-if 'token' not in st.session_state:
-    st.session_state.token = None
+# Основной поток приложения
+def main():
+    if "registration_success" not in st.session_state:
+        st.session_state.registration_success = False
 
-if 'user_data' not in st.session_state:
-    st.session_state.user_data = {}
+    if "token" not in st.session_state:
+        st.session_state.token = None
 
-if st.session_state.token:
-    # Пользователь авторизован
-    dashboard()
-else:
-    # Если токен отсутствует, показываем форму для авторизации
-    login()
+    pages = {
+        "Главная": home_page,
+        "Регистрация": registration_page,
+        "Логин": login_page,
+    }
+
+    # Панель навигации
+    page = st.sidebar.radio("Выберите страницу", options=["Главная", "Регистрация", "Логин"])
+
+    # Открываем соответствующую страницу
+    pages[page]()
+
+if __name__ == "__main__":
+    main()
