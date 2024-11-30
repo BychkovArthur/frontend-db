@@ -1,14 +1,14 @@
 import streamlit as st
 import requests
 import json
-from dotenv import load_dotenv
 import os
 
 # Загружаем переменные окружения из .env файла
-load_dotenv()
+# load_dotenv()
 
 # URL вашего API (измените на адрес вашего backend)
-API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/user")
+# API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/user")
+API_URL = "http://127.0.0.1:8000/user"
 
 # Страница для авторизации
 def login():
