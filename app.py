@@ -1,10 +1,15 @@
 import streamlit as st
 import requests
+from datetime import datetime, timedelta
+from streamlit_cookies_controller import CookieController
 
 # URL вашего API
 API_URL_REGISTER = "http://localhost:8000/api/v1/user/register"
 API_URL_TOKEN = "http://localhost:8000/api/v1/user/token"
 API_URL_LOGIN = "http://localhost:8000/api/v1/user/login"  # Новый URL для проверки авторизации
+
+# Инициализация CookieController
+controller = CookieController()
 
 # Функция для регистрации пользователя
 def register_user(email: str, password: str, name: str, tag: str):
@@ -63,21 +68,38 @@ def login_page():
         if username and password:
             token = get_token(username, password)
             if token:
-                st.success(f"Авторизация прошла успешно! Ваш токен: {token}")
-                # Сохраняем токен в сессии для использования в других запросах
+                st.success(f"Авторизация прошла успешно!")
+                
+                # Устанавливаем cookie с токеном
+                controller.set('jwt_token', token)
+
                 st.session_state.token = token
             else:
                 st.error("Ошибка авторизации!")
         else:
             st.error("Пожалуйста, заполните все поля.")
 
+# Логика выхода из аккаунта
+def logout():
+    # Удаляем токен из cookies и сессии
+    controller.remove('jwt_token')
+    st.session_state.token = None
+    st.success("Вы успешно вышли из аккаунта!")
+    st.rerun()
+
 # Главная страница
 def home_page():
-    if "token" in st.session_state and st.session_state.token:
-        token = st.session_state.token
+    # Проверяем токен в cookies
+    token = controller.get('jwt_token')
+
+    if token:
         if check_authorization(token):
             st.title("Главная страница")
             st.write("Вы в аккаунте!")  # Показываем, что пользователь авторизован
+
+            # Кнопка для выхода из аккаунта
+            if st.button("Выход"):
+                logout()
         else:
             st.title("Главная страница")
             st.write("Невалидный токен. Пожалуйста, войдите снова.")
