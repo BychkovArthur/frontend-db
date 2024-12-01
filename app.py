@@ -7,6 +7,7 @@ from streamlit_cookies_controller import CookieController
 API_URL_REGISTER = "http://localhost:8000/api/v1/user/register"
 API_URL_TOKEN = "http://localhost:8000/api/v1/user/token"
 API_URL_LOGIN = "http://localhost:8000/api/v1/user/login"  # Новый URL для проверки авторизации
+API_URL_USERS = "http://localhost:8000/api/v1/user/get_all_except_self"  # URL для получения всех пользователей
 
 # Инициализация CookieController
 controller = CookieController()
@@ -36,6 +37,40 @@ def check_authorization(token: str):
     headers = {"Authorization": f"Bearer {token}"}
     response = requests.get(API_URL_LOGIN, headers=headers)
     return response.status_code == 200
+
+# Функция для получения всех пользователей
+def get_all_users(token: str):
+    headers = {"Authorization": f"Bearer {token}"}
+    with st.spinner('Загрузка пользователей...'):
+        response = requests.get(API_URL_USERS, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error("Ошибка при получении пользователей!")
+            return []
+    
+def get_user_subscriptions(token: str):
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.get("http://localhost:8000/api/v1/subscriptions/", headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error("Ошибка при получении подписок.")
+        return []
+    
+def subscribe_user(token, other_user_id):
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.post(f"http://localhost:8000/api/v1/subscriptions/subscribe/{other_user_id}", headers=headers)
+    if response.status_code != 201:
+        st.error(f"Ошибка при подписке: {response.json().get('detail', 'Неизвестная ошибка')}")
+    st.rerun()
+
+def unsubscribe_user(token, other_user_id):
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.post(f"http://localhost:8000/api/v1/subscriptions/unsubscribe/{other_user_id}", headers=headers)
+    if response.status_code != 200:
+        st.error(f"Ошибка при отписке: {response.json().get('detail', 'Неизвестная ошибка')}")
+    st.rerun()
 
 # Страница регистрации
 def registration_page():
@@ -107,6 +142,38 @@ def home_page():
         st.title("Главная страница")
         st.write("Войдите в аккаунт")  # Если токен отсутствует, показываем сообщение для авторизации
 
+def users_page():
+    st.title("Пользователи")
+
+    token = controller.get('jwt_token')
+    if token:
+        if check_authorization(token):
+            users = get_all_users(token)
+            subscriptions = get_user_subscriptions(token)
+            subscribed_user_ids = set(sub['user_id2'] for sub in subscriptions)
+            if users:
+                for user in users:
+                    user_id = user['id']
+                    st.write(f"**Имя:** {user['name']} 🎮")
+                    st.write(f"**Текущие трофеи:** {user['crowns']} 🏆")
+                    st.write(f"**Максимальное количество трофеев:** {user['max_crowns']} 🏆")
+                    key = f"button_{user_id}"
+                    if user_id in subscribed_user_ids:
+                        if st.button("Отписаться", key=key, help="Отписаться от этого пользователя"):
+                            unsubscribe_user(token, user_id)
+                            st.toast(f"Отписались от {user['name']}", icon='✅')
+                    else:
+                        if st.button("Подписаться", key=key, help="Подписаться на этого пользователя"):
+                            subscribe_user(token, user_id)
+                            st.toast(f"Подписались на {user['name']}", icon='✅')
+                    st.write("---")
+            else:
+                st.write("Нет доступных пользователей.")
+        else:
+            st.write("Невалидный токен. Пожалуйста, войдите снова.")
+    else:
+        st.write("Войдите в аккаунт для просмотра пользователей.")
+
 # Основной поток приложения
 def main():
     if "registration_success" not in st.session_state:
@@ -119,10 +186,11 @@ def main():
         "Главная": home_page,
         "Регистрация": registration_page,
         "Логин": login_page,
+        "Пользователи": users_page,
     }
 
     # Панель навигации
-    page = st.sidebar.radio("Выберите страницу", options=["Главная", "Регистрация", "Логин"])
+    page = st.sidebar.radio("Выберите страницу", options=["Главная", "Регистрация", "Логин", "Пользователи"])
 
     # Открываем соответствующую страницу
     pages[page]()
