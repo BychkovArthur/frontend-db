@@ -152,21 +152,43 @@ def users_page():
             subscriptions = get_user_subscriptions(token)
             subscribed_user_ids = set(sub['user_id2'] for sub in subscriptions)
             if users:
-                for user in users:
-                    user_id = user['id']
-                    st.write(f"**Имя:** {user['name']} 🎮")
-                    st.write(f"**Текущие трофеи:** {user['crowns']} 🏆")
-                    st.write(f"**Максимальное количество трофеев:** {user['max_crowns']} 🏆")
-                    key = f"button_{user_id}"
-                    if user_id in subscribed_user_ids:
-                        if st.button("Отписаться", key=key, help="Отписаться от этого пользователя"):
-                            unsubscribe_user(token, user_id)
-                            st.toast(f"Отписались от {user['name']}", icon='✅')
+                # Add a checkbox to filter subscriptions
+                show_subscriptions = st.checkbox("Мои подписки")
+
+                if show_subscriptions:
+                    # Filter users to show only those you are subscribed to
+                    subscribed_users = [user for user in users if user['id'] in subscribed_user_ids]
+                    if subscribed_users:
+                        for user in subscribed_users:
+                            user_id = user['id']
+                            st.write(f"**Имя:** {user['name']} 🎮")
+                            st.write(f"**Текущие трофеи:** {user['crowns']} 🏆")
+                            st.write(f"**Максимальное количество трофеев:** {user['max_crowns']} 🏆")
+                            key = f"button_{user_id}"
+                            # Since we're showing subscribed users, show "Отписаться" button
+                            if st.button("Отписаться", key=key, help="Отписаться от этого пользователя"):
+                                unsubscribe_user(token, user_id)
+                                st.toast(f"Отписались от {user['name']}", icon='✅')
+                            st.write("---")
                     else:
-                        if st.button("Подписаться", key=key, help="Подписаться на этого пользователя"):
-                            subscribe_user(token, user_id)
-                            st.toast(f"Подписались на {user['name']}", icon='✅')
-                    st.write("---")
+                        st.write("Нет подписок.")
+                else:
+                    # Show all users
+                    for user in users:
+                        user_id = user['id']
+                        st.write(f"**Имя:** {user['name']} 🎮")
+                        st.write(f"**Текущие трофеи:** {user['crowns']} 🏆")
+                        st.write(f"**Максимальное количество трофеев:** {user['max_crowns']} 🏆")
+                        key = f"button_{user_id}"
+                        if user_id in subscribed_user_ids:
+                            if st.button("Отписаться", key=key, help="Отписаться от этого пользователя"):
+                                unsubscribe_user(token, user_id)
+                                st.toast(f"Отписались от {user['name']}", icon='✅')
+                        else:
+                            if st.button("Подписаться", key=key, help="Подписаться на этого пользователя"):
+                                subscribe_user(token, user_id)
+                                st.toast(f"Подписались на {user['name']}", icon='✅')
+                        st.write("---")
             else:
                 st.write("Нет доступных пользователей.")
         else:
