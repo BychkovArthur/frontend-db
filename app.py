@@ -2,22 +2,28 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 from streamlit_cookies_controller import CookieController
+import pandas as pd
 
 # URL вашего API
 API_URL_REGISTER = "http://localhost:8000/api/v1/user/register"
 API_URL_TOKEN = "http://localhost:8000/api/v1/user/token"
 API_URL_LOGIN = "http://localhost:8000/api/v1/user/login"  # Новый URL для проверки авторизации
 API_URL_USERS = "http://localhost:8000/api/v1/user/get_all_except_self"  # URL для получения всех пользователей
+API_URL_BATTLE_RECORDS = "http://localhost:8000/api/v1/battle_records/"  # URL для получения баттл рекордов
+API_URL_AGGR_BATTLE_RECORDS = "http://localhost:8000/api/v1/battle_records/aggregated"  # URL для получения агрегированных баттл рекордов
+API_URL_LIST_DUMPS = "http://localhost:8000/api/v1/admin/dumps"
+API_URL_CREATE_DUMP = "http://localhost:8000/api/v1/admin/dump"
+API_URL_RESTORE_DUMP = "http://localhost:8000/api/v1/admin/restore"
+
 
 # Инициализация CookieController
 controller = CookieController()
 
 # Функция для регистрации пользователя
-def register_user(email: str, password: str, name: str, tag: str):
+def register_user(email: str, password: str, tag: str):
     user_data = {
         "email": email,
         "password": password,
-        "name": name,
         "tag": tag
     }
     response = requests.post(API_URL_REGISTER, json=user_data)
@@ -36,7 +42,12 @@ def get_token(username: str, password: str):
 def check_authorization(token: str):
     headers = {"Authorization": f"Bearer {token}"}
     response = requests.get(API_URL_LOGIN, headers=headers)
-    return response.status_code == 200
+    if response.status_code == 200:
+        user_data = response.json()
+        return user_data
+    else:
+        st.error("Ошибка при проверке авторизации!")
+        return None
 
 # Функция для получения всех пользователей
 def get_all_users(token: str):
@@ -78,12 +89,11 @@ def registration_page():
 
     email = st.text_input("Email")
     password = st.text_input("Пароль", type="password")
-    name = st.text_input("Имя")
     tag = st.text_input("Тег")
 
     if st.button("Зарегистрироваться"):
-        if email and password and name and tag:
-            response = register_user(email, password, name, tag)
+        if email and password and tag:
+            response = register_user(email, password, tag)
             if response.status_code == 201:
                 st.success("Пользователь успешно зарегистрирован! Перейдите на страницу входа.")
                 st.session_state.registration_success = True
@@ -126,11 +136,13 @@ def logout():
 def home_page():
     # Проверяем токен в cookies
     token = controller.get('jwt_token')
-
+    
     if token:
-        if check_authorization(token):
+        user_data = check_authorization(token)
+        if user_data:
             st.title("Главная страница")
-            st.write("Вы в аккаунте!")  # Показываем, что пользователь авторизован
+            st.write(f"Вы в аккаунте, {user_data['name']}! 😄")
+            st.write(f"**Тег:** {user_data['tag']} 🏆")
 
             # Кнопка для выхода из аккаунта
             if st.button("Выход"):
@@ -140,7 +152,7 @@ def home_page():
             st.write("Невалидный токен. Пожалуйста, войдите снова.")
     else:
         st.title("Главная страница")
-        st.write("Войдите в аккаунт")  # Если токен отсутствует, показываем сообщение для авторизации
+        st.write("Войдите в аккаунт для просмотра содержимого.")
 
 def users_page():
     st.title("Пользователи")
@@ -195,8 +207,153 @@ def users_page():
             st.write("Невалидный токен. Пожалуйста, войдите снова.")
     else:
         st.write("Войдите в аккаунт для просмотра пользователей.")
+        
 
-# Основной поток приложения
+def battle_records_page():
+    st.title("Мои поединки")
+
+    token = controller.get('jwt_token')
+    if token:
+        if check_authorization(token):
+            try:
+                headers = {"Authorization": f"Bearer {token}"}
+                response = requests.get(API_URL_BATTLE_RECORDS, headers=headers)
+                if response.status_code == 200:
+                    battle_records = response.json()
+                    if battle_records:
+                        for record in battle_records:
+                            st.write(f"**Соперник:** {record['name2']} 🎮")
+                            st.write(f"**Твой счет:** {record['user1_score']} | **Счет соперника:** {record['user2_score']} 🎮")
+                            st.write(f"**Твои короны:** {record['user1_get_crowns']} | **Короны соперника:** {record['user2_get_crowns']} 🏆")
+                            if record['is_user1_win']:
+                                st.write(f"**Результат:** Победа! 😄")
+                            else:
+                                st.write(f"**Результат:** Поражение 😢")
+                            st.write("---")
+                    else:
+                        st.write("У вас пока нет поединков.")
+                else:
+                    st.error("Ошибка при получении поединков.")
+            except Exception as e:
+                st.error(f"Произошла ошибка: {e}")
+        else:
+            st.write("Невалидный токен. Пожалуйста, войдите снова.")
+    else:
+        st.write("Войдите в аккаунт для просмотра поединков.")
+
+def battle_statistics_page():
+    st.title("Статистика моих боев")
+
+    token = controller.get('jwt_token')
+    if token:
+        user_data = check_authorization(token)
+        if user_data:
+            with st.spinner('Загрузка статистики боев...'):
+                headers = {"Authorization": f"Bearer {token}"}
+                response = requests.get(API_URL_AGGR_BATTLE_RECORDS, headers=headers)
+                if response.status_code == 200:
+                    aggr_battle_records = response.json()
+                    if aggr_battle_records:
+                        # Convert to DataFrame for easier manipulation
+                        df = pd.DataFrame(aggr_battle_records)
+                        
+                        # Calculate total wins and losses
+                        total_wins = df['score1'].sum()
+                        total_losses = df['score2'].sum()
+                        total_battles = total_wins + total_losses
+                        win_percentage = (total_wins / total_battles) * 100 if total_battles > 0 else 0
+                        
+                        # Display summary metrics
+                        st.write(f"**Всего боев:** {total_battles}")
+                        st.write(f"**Побед:** {total_wins} ({win_percentage:.2f}%)")
+                        st.write(f"**Поражений:** {total_losses} ({100 - win_percentage:.2f}%)")
+                        
+                        # Display the aggregated records in a table
+                        st.subheader("Подробная статистика по соперникам")
+                        st.dataframe(df[['name1', 'name2', 'score1', 'score2']])
+                        
+                        # Optional: Create a bar chart for wins vs losses
+                        st.subheader("График побед и поражений")
+                        win_loss_df = pd.DataFrame({
+                            'Результат': ['Победы', 'Поражения'],
+                            'Количество': [total_wins, total_losses]
+                        })
+                        st.bar_chart(win_loss_df.set_index('Результат'))
+                        
+                    else:
+                        st.write("У вас нет агрегированных данных по боям.")
+                else:
+                    st.error(f"Ошибка при получении статистики боев: {response.status_code}")
+        else:
+            st.write("Невалидный токен. Пожалуйста, войдите снова.")
+    else:
+        st.write("Войдите в аккаунт для просмотра статистики боев.")
+        
+# Страница администратора
+def admin_page():
+    st.title("Администратор")
+
+    token = controller.get('jwt_token')
+    if token:
+        user_data = check_authorization(token)
+        if user_data and user_data.get('is_super_user', False):
+            st.write("Добро пожаловать, администратор!")
+
+            # Fetch the list of dumps
+            try:
+                response = requests.post(API_URL_LIST_DUMPS, headers={"Authorization": f"Bearer {token}"})
+                response.raise_for_status()
+                dumps = response.json().get("dumps", [])
+            except requests.exceptions.HTTPError as errh:
+                st.error(f"HTTP Error: {errh}")
+                dumps = []
+            except requests.exceptions.ConnectionError as errc:
+                st.error(f"Error Connecting: {errc}")
+                dumps = []
+            except requests.exceptions.Timeout as errt:
+                st.error(f"Timeout Error: {errt}")
+                dumps = []
+            except requests.exceptions.RequestException as err:
+                st.error(f"Error: {err}")
+                dumps = []
+
+            # Display the list of dumps with restore buttons
+            st.subheader("Список дампов")
+            if dumps:
+                for dump in dumps:
+                    st.write(f"Дамп: {dump}")
+                    if st.button(f"Восстановить из {dump}", key=f"restore_{dump}"):
+                        with st.spinner(f"Восстановление из {dump}..."):
+                            try:
+                                restore_response = requests.post(API_URL_RESTORE_DUMP, json={"filename": dump}, headers={"Authorization": f"Bearer {token}"})
+                                restore_response.raise_for_status()
+                                st.success(restore_response.json().get("message", "База данных восстановлена успешно."))
+                            except requests.exceptions.HTTPError as errh:
+                                st.error(f"HTTP Ошибка: {errh}")
+                            except requests.exceptions.RequestException as err:
+                                st.error(f"Ошибка: {err}")
+            else:
+                st.write("Дампы не найдены.")
+
+            # Create a new dump
+            st.subheader("Создать новый дамп")
+            if st.button("Создать новый дамп"):
+                with st.spinner("Создание нового дампа..."):
+                    try:
+                        create_response = requests.post(API_URL_CREATE_DUMP, headers={"Authorization": f"Bearer {token}"})
+                        create_response.raise_for_status()
+                        st.success(create_response.json().get("message", "Дамп создан успешно."))
+                    except requests.exceptions.HTTPError as errh:
+                        st.error(f"HTTP Ошибка: {errh}")
+                    except requests.exceptions.RequestException as err:
+                        st.error(f"Ошибка: {err}")
+        else:
+            st.write("У вас нет доступа к этой странице.")
+    else:
+        st.write("Войдите в аккаунт для просмотра этой страницы.")
+
+
+
 def main():
     if "registration_success" not in st.session_state:
         st.session_state.registration_success = False
@@ -205,14 +362,17 @@ def main():
         st.session_state.token = None
 
     pages = {
-        "Главная": home_page,
+        "Профиль": home_page,
         "Регистрация": registration_page,
-        "Логин": login_page,
+        "Вход": login_page,
         "Пользователи": users_page,
+        "Мои поединки": battle_records_page,
+        "Статистика боев": battle_statistics_page,
+        "Администратор": admin_page,  # Добавляем новую страницу
     }
 
     # Панель навигации
-    page = st.sidebar.radio("Выберите страницу", options=["Главная", "Регистрация", "Логин", "Пользователи"])
+    page = st.sidebar.radio("Выберите страницу", options=["Регистрация", "Вход", "Профиль", "Пользователи", "Мои поединки", "Статистика боев", "Администратор"])
 
     # Открываем соответствующую страницу
     pages[page]()
